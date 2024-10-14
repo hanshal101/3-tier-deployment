@@ -1,62 +1,70 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: api
   namespace: 3tier
-  name: mongodb
+  labels:
+    role: api
+    env: demo
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 25%
   selector:
     matchLabels:
-      app: mongodb
+      role: api
   template:
     metadata:
       labels:
-        app: mongodb
+        role: api
     spec:
       containers:
-      - name: mon
-        image: mongo:4.4.6
-        command:
-            - "numactl"
-            - "--interleave=all"
-            - "mongod"
-            - "--wiredTigerCacheSizeGB"
-            - "0.1"
-            - "--bind_ip"
-            - "0.0.0.0"
-        ports:
-        - containerPort: 27017
+      - name: api
+        image: hanshal101/3tier-backend:v1
+        imagePullPolicy: Always
         env:
-          - name: MONGO_INITDB_ROOT_USERNAME
+          - name: MONGO_CONN_STR
+            value: mongodb://mongodb-svc:27017/todo?directConnection=true
+          - name: MONGO_USERNAME
             valueFrom:
               secretKeyRef:
                 name: mongo-sec
                 key: username
-          - name: MONGO_INITDB_ROOT_PASSWORD
+          - name: MONGO_PASSWORD
             valueFrom:
               secretKeyRef:
                 name: mongo-sec
                 key: password
-        volumeMounts:
-          - name: mongo-volume
-            mountPath: /data/db
-      volumes:
-      - name: mongo-volume
-        persistentVolumeClaim:
-          claimName: mongo-volume-claim
+        ports:
+        - containerPort: 3500
+        livenessProbe:
+          httpGet:
+            path: /ok
+            port: 3500
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /ok
+            port: 3500
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          successThreshold: 1
 
 ---
 
 apiVersion: v1
 kind: Service
 metadata:
+  name: api
   namespace: 3tier
-  name: mongodb-svc
 spec:
-  selector:
-    app: mongodb
   ports:
-  - name: mongodb-svc
+  - port: 3500
     protocol: TCP
-    port: 27017
-    targetPort: 27017
+  type: ClusterIP
+  selector:
+    role: api
